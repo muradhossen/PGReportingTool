@@ -5,12 +5,14 @@ using System.Reflection.Emit;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
+using ConnectingToPG.Models;
+using Npgsql.Replication.PgOutput;
 
 namespace ConnectingToPG
 {
     public class DynamicClassFactory
     {
-        public void CreateClass()
+        public Type CreateClass(string className, List<PropertyParam> properties)
         {
             // Create a dynamic assembly
             AssemblyName assemblyName = new AssemblyName("DynamicAssembly");
@@ -20,36 +22,50 @@ namespace ConnectingToPG
             ModuleBuilder moduleBuilder = assemblyBuilder.DefineDynamicModule("DynamicModule");
 
             // Create a dynamic type (class)
-            TypeBuilder typeBuilder = moduleBuilder.DefineType("DynamicClass", TypeAttributes.Public | TypeAttributes.Class);
+            TypeBuilder typeBuilder = moduleBuilder.DefineType(className, TypeAttributes.Public | TypeAttributes.Class);
 
-            // Define properties in the dynamic type
-            DefineProperty(typeBuilder, "Name", typeof(string));
-            DefineProperty(typeBuilder, "Age", typeof(int));
+
+            for (int i = 0; i < properties.Count; i++)
+            {
+
+                var property = properties[i];
+
+                // Define properties in the dynamic type
+                DefineProperty(typeBuilder, property.Name, GetPropertyTypeModifier(property.Type));
+            }
+
+           
+          //  DefineProperty(typeBuilder, "Age", typeof(int));
 
             // Create the dynamic type
-            Type dynamicType = typeBuilder.CreateType();
+            return typeBuilder.CreateType();
 
             // Create an instance of the dynamic type
-            dynamic instance = Activator.CreateInstance(dynamicType);
+            //dynamic instance = Activator.CreateInstance(dynamicType);
 
-            // Set property values
-            PropertyInfo nameProperty = dynamicType.GetProperty("Name");
-            nameProperty.SetValue(instance, "John Doe");
 
-            PropertyInfo ageProperty = dynamicType.GetProperty("Age");
-            ageProperty.SetValue(instance, 25);
+            //return instance;
+            //// Set property values
+            //PropertyInfo nameProperty = dynamicType.GetProperty("Name");
+            //nameProperty.SetValue(instance, "John Doe");
 
-            // Get property values
-            string name = (string)nameProperty.GetValue(instance);
-            int age = (int)ageProperty.GetValue(instance);
+            //PropertyInfo ageProperty = dynamicType.GetProperty("Age");
+            //ageProperty.SetValue(instance, 25);
 
-            // Output the property values
-            Console.WriteLine("Name: " + name);
-            Console.WriteLine("Age: " + age);
+            //// Get property values
+            //string name = (string)nameProperty.GetValue(instance);
+            //int age = (int)ageProperty.GetValue(instance);
+
+            //// Output the property values
+            //Console.WriteLine("Name: " + name);
+            //Console.WriteLine("Age: " + age);
         }
 
         private static void DefineProperty(TypeBuilder typeBuilder, string propertyName, Type propertyType)
         {
+            // Define the private field backing the property
+            FieldBuilder fieldBuilder = typeBuilder.DefineField("_" + propertyName, propertyType, FieldAttributes.Private);
+
             // Define the property
             PropertyBuilder propertyBuilder = typeBuilder.DefineProperty(propertyName,
                 PropertyAttributes.HasDefault,
@@ -64,11 +80,44 @@ namespace ConnectingToPG
 
             ILGenerator getterILGenerator = getterMethodBuilder.GetILGenerator();
             getterILGenerator.Emit(OpCodes.Ldarg_0); // Load "this" onto the stack
-            getterILGenerator.Emit(OpCodes.Call, typeof(object).GetMethod("ToString")); // Replace this with actual getter logic
+            getterILGenerator.Emit(OpCodes.Ldfld, fieldBuilder); // Load the value of the field onto the stack
             getterILGenerator.Emit(OpCodes.Ret);
 
-            // Set the getter method for the property
+            // Define the setter method
+            MethodBuilder setterMethodBuilder = typeBuilder.DefineMethod("set_" + propertyName,
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                null,
+                new Type[] { propertyType });
+
+            ILGenerator setterILGenerator = setterMethodBuilder.GetILGenerator();
+            setterILGenerator.Emit(OpCodes.Ldarg_0); // Load "this" onto the stack
+            setterILGenerator.Emit(OpCodes.Ldarg_1); // Load the value to be assigned onto the stack
+            setterILGenerator.Emit(OpCodes.Stfld, fieldBuilder); // Assign the value to the field
+            setterILGenerator.Emit(OpCodes.Ret);
+
+            // Set the getter and setter methods for the property
             propertyBuilder.SetGetMethod(getterMethodBuilder);
+            propertyBuilder.SetSetMethod(setterMethodBuilder);
         }
+
+        private static Type GetPropertyTypeModifier(string propertyType)
+        {
+            if (string.IsNullOrWhiteSpace(propertyType))
+            {
+                throw new ArgumentNullException($"{propertyType} type cann't be null or empty!");
+            }
+
+            return propertyType switch
+            {
+                "string" => typeof(string),
+                "double" => typeof(double),
+                "int" => typeof(int),
+                "long" => typeof(long), 
+                "float" => typeof(float),
+                "object" => typeof(object),                 
+                _=> throw new NotSupportedException("Property type not supported."),
+            };
+        }
+
     }
 }
