@@ -62,8 +62,8 @@ foreach (var prop in propertyParams)
 
     instance.Add(reportDtoInstance);
 
-
+    Console.WriteLine(Property.GetValue(prop.Name));
 }
 
 
-Console.ReadKey();
+
